@@ -53,31 +53,34 @@ function containsCrisisKeyword(text) {
 }
 
 /**
- * §59-7 5단 구조 메시지 빌드.
- * ①~④ 텍스트 + ⑤ 글리프·캡션 분리 발송 — sendDailyInvest()에서 처리.
+ * §59-7 5단 구조 메시지 빌드 — v2: ①~④ 번호 제거, 흐름형 문장으로 전환.
+ * "오늘의 나"(bot.js)와 동일한 톤으로 통일.
+ * macro.text(assetMapping.js v2)가 이미 오행×유형별로 풀어쓴 완성 문장이라
+ * 별도 "결로 들어옵니다" 연결구는 생략 — 대신 자연스러운 흐름 멘트(TYPE_FLOW)만 덧붙임.
+ * areaLine/advice/healMsg는 기존 모듈 결과를 그대로 사용.
+ * ⑤ 글리프·캡션 분리 발송은 sendDailyInvest()에서 변경 없이 그대로 처리.
  */
+const TYPE_FLOW = {
+  A: '무리하게 밀어붙이기보다 한 박자 늦추는 쪽이 오늘의 결을 지키는 방법입니다.',
+  B: '무리해서 흔들어 깨우지 않아도 괜찮은 흐름입니다.',
+  C: '애써 누르지 않아도 자연스럽게 흘러가는 하루입니다.'
+};
+
 function buildInvestParts(birthYear) {
   const r = todayFortune(birthYear); // { type: 'A'|'B'|'C', ... } — bornbone_today.js 재사용
   const macro = getMacroLine(r.type);
   const areaLine = getAssetAreaLine(macro.ohang);
   const advice = pickAdvice(r.type);
   const healMsg = pickHealMsg(r.type);
+  const flow = TYPE_FLOW[r.type] || TYPE_FLOW.B;
 
   const text =
     `🌅 오늘의 투자운\n\n` +
-    `① ${macro.text}\n\n` +
-    `② 당신에게는 그 기운이 ${TYPE_FEEL[r.type] || TYPE_FEEL.B} 결로 들어옵니다.\n\n` +
-    `③ ${areaLine}\n\n` +
-    `④ ${advice}\n`;
+    `${macro.text} ${flow}\n\n` +
+    `${areaLine} ${advice}\n`;
 
   return { text, healMsg };
 }
-
-const TYPE_FEEL = {
-  C: '받쳐주는',
-  A: '강하게 충돌하는',
-  B: '차분히 고이는'
-};
 
 async function sendDailyInvest(chatId, birthYear) {
   const { text, healMsg } = buildInvestParts(birthYear);
