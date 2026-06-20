@@ -35,7 +35,7 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const GLYPH_PATH = './glyphs/heart-dollar-4.png'; // §59-7 확정 글리프(결합형4). 파일 직접 배치 필요.
+const GLYPH_PATH = './heart-dollar-4.png'; // §59-7 확정 글리프(결합형4). 파일 직접 배치 필요.
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 const pending = new Map(); // chatId → 'awaiting_year'
