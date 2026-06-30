@@ -9,11 +9,16 @@
  *  /stop     → 수신 거부
  *  /privacy  → 개인정보 처리 + 법적 고지
  *
+ * v2 — 정보량 강화: 60갑자 일주 정체성 한 줄(30% 확률 노출) + 십성 영역 활성화
+ * 이유 설명 문장 추가. ⚠️ 새 행동 지시 문구는 추가하지 않음 — 포지션 관리 행동
+ * 어휘는 investPhrases.js(§59-4 고정 어휘)가 전담. §59-1 법적 경계선 보호.
+ *
  * ⚠️ 법적 경계선(§59-1, 절대 규칙): 종목·코인명·매수매도 시그널 절대 금지.
  *    자산군은 항상 카테고리명만(예: "성장 계열"). 모든 발송에 면책 문구 고정 동봉.
  *
  * 의존 파일(같은 폴더에 위치): bornbone_today.js (오늘의 나 봇과 동일 파일 복사),
- *   sipseong.js (오늘의 나 봇과 동일 파일 공유), assetMapping.js, investPhrases.js, storage.js
+ *   sipseong.js (오늘의 나 봇과 동일 파일 공유), ilju.js (오늘의 나 봇과 동일 파일 공유),
+ *   assetMapping.js, investPhrases.js, storage.js
  * 의존 패키지: dotenv, node-cron, node-telegram-bot-api, lunar-javascript
  *
  * 실행 전: npm install && cp .env.example .env (INVEST_BOT_TOKEN 입력) 후 npm start
@@ -25,7 +30,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 
 const { todayFortune } = require('./bornbone_today');
-const { getTodayDomain } = require('./sipseong');
+const { getTodayDomain, SIP_INVEST_DETAIL } = require('./sipseong');
+const { getIljuIntroLine } = require('./ilju');
 const { getMacroLine, getAssetAreaLine } = require('./assetMapping');
 const { pickAdvice, pickHealMsg, DISCLAIMER } = require('./investPhrases');
 const { upsertUser, getUser, removeUser, getAllUsers } = require('./storage');
@@ -76,14 +82,22 @@ function buildInvestParts(user) {
   const healMsg = pickHealMsg(r.type);
   const flow = TYPE_FLOW[r.type] || TYPE_FLOW.B;
 
+  // ① 일주 정체성 한 줄 — 약 30% 확률로만 노출(ilju.js 공유). 매일 노출 시 단정·세뇌 위험 방지.
+  const iljuIntro = (birthMonth && birthDay)
+    ? getIljuIntroLine(birthYear, birthMonth, birthDay)
+    : null;
+  const iljuLine = iljuIntro ? `${iljuIntro}\n\n` : '';
+
   // 십성 재물 영역 — 생년월일 전체가 있어야 산출 가능. 연도만 있는 기존 가입자는 생략.
   const domain = getTodayDomain(birthYear, birthMonth, birthDay, new Date(), 'invest');
   const domainLine = domain
-    ? ` 당신에게는 오늘 특히 ${domain.label}로 그 흐름이 닿습니다.`
+    ? ` 당신에게는 오늘 특히 ${domain.label}로 그 흐름이 닿습니다. ` +
+      `${SIP_INVEST_DETAIL[domain.sipseong] || ''}`
     : '';
 
   const text =
     `🌅 오늘의 투자운\n\n` +
+    `${iljuLine}` +
     `${macro.text} ${flow}${domainLine}\n\n` +
     `${areaLine} ${advice}\n`;
 
@@ -151,7 +165,7 @@ bot.onText(/\/stop/, (msg) => {
 // ── /privacy : 개인정보 처리 + 법적 고지 ──
 bot.onText(/\/privacy/, (msg) => {
   bot.sendMessage(msg.chat.id,
-    '수집 항목: 출생연도, 텔레그램 chat ID만 저장합니다.\n' +
+    '수집 항목: 생년월일, 텔레그램 chat ID만 저장합니다.\n' +
     '용도: 매일 발송 콘텐츠 개인화 목적 외 사용하지 않습니다.\n' +
     '삭제: /stop 시 즉시 파기됩니다.\n\n' +
     `${DISCLAIMER}\n` +
