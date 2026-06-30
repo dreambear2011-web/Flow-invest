@@ -175,7 +175,7 @@ bot.onText(/\/privacy/, (msg) => {
 });
 
 // ── 온보딩 진행 + 위기개입 키워드 감지 ──
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   if (!text || text.startsWith('/')) return;
@@ -199,7 +199,7 @@ bot.on('message', (msg) => {
     };
     upsertUser(chatId, newUser);
     pending.delete(chatId);
-    bot.sendMessage(chatId, '가입이 완료되었습니다. 매일 아침 7시 30분에 전해드릴게요 🙂\n\n오늘의 흐름을 먼저 보여드릴게요 —');
+    await bot.sendMessage(chatId, '가입이 완료되었습니다. 매일 아침 7시 30분에 전해드릴게요 🙂\n\n오늘의 흐름을 먼저 보여드릴게요 —');
     sendDailyInvest(chatId, newUser).catch(err => console.error('샘플 발송 실패:', err.message));
   }
 });
