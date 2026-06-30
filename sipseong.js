@@ -101,7 +101,17 @@ function getTodayDomain(birthYear, birthMonth, birthDay, date = new Date(), flav
   return { sipseong: sip, label };
 }
 
+// "투자봇" — 영역이 왜 활성화되는지 1문장 설명 (포지션 행동 어휘는 investPhrases.js가 전담 —
+// 여기서는 설명만, 별도 행동 지시는 추가하지 않음 — §59-1 법적 경계선 보호)
+const SIP_INVEST_DETAIL = {
+  비겁: '오늘 일진이 당신과 같은 결의 기운이라, 평소보다 더 주도적으로 판단하게 되는 날입니다.',
+  식상: '오늘 일진이 당신이 굴리는 쪽 기운과 만나, 회전·전환 쪽으로 마음이 쏠리는 날입니다.',
+  재성: '오늘 일진이 당신이 다스리는 쪽 기운과 만나, 손에 잡히는 결과 쪽으로 시선이 가는 날입니다.',
+  관성: '오늘 일진이 당신을 다스리는 쪽 기운과 만나, 계약·책임이 따라붙는 결정 쪽으로 무게가 실리는 날입니다.',
+  인성: '오늘 일진이 당신을 채워주는 쪽 기운과 만나, 쌓아두고 지키는 쪽으로 마음이 기우는 날입니다.'
+};
+
 module.exports = {
   getDayGan, getTodayDayGan, getSipseong, getTodayDomain,
-  SIP_TO_AREA, SIP_TO_INVEST, SIP_DAILY_DETAIL, SIP_DAILY_ACTION
+  SIP_TO_AREA, SIP_TO_INVEST, SIP_DAILY_DETAIL, SIP_DAILY_ACTION, SIP_INVEST_DETAIL
 };
