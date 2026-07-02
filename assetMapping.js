@@ -90,8 +90,20 @@ const AREA_TEXT = {
   水: '오늘은 특히 유동성 계열 자산군이 물줄기처럼 방향을 바꾸며 흐릅니다.'
 };
 
+// ⚠️ 서버 타임존 버그 수정[2026-07-01]: sipseong.js와 동일 이슈 — Solar.fromDate(date)가
+// 서버 로컬(UTC 등) 기준으로 날짜를 읽어 KST 아침 발송 시 일진이 하루 밀리는 문제.
+// → Asia/Seoul 달력 기준 연/월/일로 변환 후 Solar.fromYmd 사용.
+function resolveKstYmd(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  const get = (t) => +parts.find(p => p.type === t).value;
+  return { y: get('year'), m: get('month'), d: get('day') };
+}
+
 function getTodayOhang(date = new Date()) {
-  const solar = Solar.fromDate(date);
+  const { y, m, d } = resolveKstYmd(date);
+  const solar = Solar.fromYmd(y, m, d);
   const lunar = solar.getLunar();
   const ganHanja = lunar.getDayGan();
   const ganKr = GAN_KR[ganHanja] || ganHanja;

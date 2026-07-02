@@ -67,8 +67,21 @@ function getDayGan(birthYear, birthMonth, birthDay) {
   return GAN_KR[ganHanja] || ganHanja;
 }
 
+// ⚠️ 서버 타임존 버그 수정[2026-07-01]: Solar.fromDate(date)는 Date를 서버 로컬
+// 타임존 기준으로 년/월/일을 읽는다. Railway 등 UTC 서버에서 KST 07~08시 발송 시
+// UTC로는 아직 전날 22~23시라서 일진이 하루 밀려 계산되는 문제가 있었음(매일 재현).
+// → 타임존 무관하게 항상 Asia/Seoul 달력 기준 연/월/일로 변환 후 Solar.fromYmd 사용.
+function resolveKstYmd(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  const get = (t) => +parts.find(p => p.type === t).value;
+  return { y: get('year'), m: get('month'), d: get('day') };
+}
+
 function getTodayDayGan(date = new Date()) {
-  const solar = Solar.fromDate(date);
+  const { y, m, d } = resolveKstYmd(date);
+  const solar = Solar.fromYmd(y, m, d);
   const lunar = solar.getLunar();
   const ganHanja = lunar.getDayGan();
   return GAN_KR[ganHanja] || ganHanja;
