@@ -3,25 +3,24 @@
  * 지아세 "오늘의 투자운" 텔레그램 봇 (§59 — 별도 봇/별도 BotFather 토큰).
  *
  * 흐름:
- *  /start    → 생년월일 입력(②유형+십성 산출용) → 가입 완료 + 즉시 샘플 발송
- *  매일 발송(기본 07:30 KST — 장 시작 전, "오늘의 나"와 시간대 분리해 톤 중복 방지)
- *  /오늘투자  → 즉시 확인
- *  /stop     → 수신 거부
- *  /privacy  → 개인정보 처리 + 법적 고지
+ *  /start    → 생년월일 입력 → 가입 완료 + 즉시 샘플 발송
+ *  매일 발송(07:30 KST — 장 시작 전, "오늘의 나"와 시간대 분리)
+ *  /오늘투자  → 즉시 확인   /이달투자 → 이달 남은 흐름   /stop /privacy
  *
- * v2 — 정보량 강화: 60갑자 일주 정체성 한 줄(30% 확률 노출) + 십성 영역 활성화
- * 이유 설명 문장 추가. ⚠️ 새 행동 지시 문구는 추가하지 않음 — 포지션 관리 행동
- * 어휘는 investPhrases.js(§59-4 고정 어휘)가 전담. §59-1 법적 경계선 보호.
+ * v3 — [가치 재설계 + 풍부화]
+ *  ① 한 덩어리 줄글 → 블록화(parse_mode:'HTML' + 라벨 + 구분선).
+ *  ② 가치 축 이동: '포지션 행동 조언(§59-4 반복)'을 센터에서 내리고,
+ *     십성별 '오늘의 투자 심리 거울'(SIP_INVEST_INSIGHT)을 센터로.
+ *     → "맨날 분할익절" 인상 해소. 면책이 말하는 "성향·심리 진단"을 실제 이행.
+ *  ③ "다가오는 5일 흐름" 프리뷰 추가(랜딩보다 살짝 풍성).
+ * v4 — [디자인] 레이키 글리프 폐기 → 그날 오행 카드 5종 회전(오늘의 나 봇과 동일 세트).
+ *     브랜드 마크(물길+돌탑)는 /start 첫인사 전용.
+ *  ⚠️ §59-1 법적 경계선 그대로: 종목·코인명·매수매도 시그널 절대 금지.
+ *     자산군은 카테고리명만. 모든 발송에 면책 문구 고정 동봉.
  *
- * ⚠️ 법적 경계선(§59-1, 절대 규칙): 종목·코인명·매수매도 시그널 절대 금지.
- *    자산군은 항상 카테고리명만(예: "성장 계열"). 모든 발송에 면책 문구 고정 동봉.
- *
- * 의존 파일(같은 폴더에 위치): bornbone_today.js (오늘의 나 봇과 동일 파일 복사),
- *   sipseong.js (오늘의 나 봇과 동일 파일 공유), ilju.js (오늘의 나 봇과 동일 파일 공유),
- *   assetMapping.js, investPhrases.js, storage.js
+ * 의존(같은 폴더): bornbone_today.js, sipseong.js(v3), ilju.js, assetMapping.js,
+ *   investPhrases.js, storage.js, preview.js(신규)
  * 의존 패키지: dotenv, node-cron, node-telegram-bot-api, lunar-javascript
- *
- * 실행 전: npm install && cp .env.example .env (INVEST_BOT_TOKEN 입력) 후 npm start
  */
 
 'use strict';
@@ -30,10 +29,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 
 const { todayFortune } = require('./bornbone_today');
-const { getTodayDomain, SIP_INVEST_DETAIL } = require('./sipseong');
+const { getTodayDomain, SIP_INVEST_DETAIL, SIP_INVEST_INSIGHT } = require('./sipseong');
 const { getIljuIntroLine } = require('./ilju');
 const { getMacroLine, getAssetAreaLine } = require('./assetMapping');
 const { pickAdvice, pickHealMsg, DISCLAIMER } = require('./investPhrases');
+const { buildWeekPreview, kstMonthDay } = require('./preview');
 const { upsertUser, getUser, removeUser, getAllUsers } = require('./storage');
 
 const TOKEN = process.env.INVEST_BOT_TOKEN;
@@ -42,7 +42,17 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const GLYPH_PATH = './invest-mark.png'; // 레이키 초크레이+높은음자리표+달러 결합 글리프 (파일 직접 배치 필요)
+// [디자인 v4] 레이키 글리프 폐기 — 발행 콘텐츠와 톤 충돌 + 모드1 심볼 노출 이슈 해소.
+// 브랜드 마크(물길+돌탑, 균형·흐름 은유)는 /start 첫인사 전용. 돈·차트·화살표 없음(§59-1).
+const BRAND_MARK = './invest-mark.png';
+// 오행 카드 5종 — 그날 일진 오행에 맞춰 매일 마무리 이미지로 회전(오늘의 나 봇과 동일 세트).
+const ELEMENT_CARD = {
+  木: './card-wood.png',
+  火: './card-fire.png',
+  土: './card-earth.png',
+  金: './card-metal.png',
+  水: './card-water.png'
+};
 
 const bot = new TelegramBot(TOKEN, { polling: true });
 const pending = new Map(); // chatId → 'awaiting_birthdate'
@@ -59,56 +69,75 @@ function containsCrisisKeyword(text) {
   return CRISIS_KEYWORDS.some(k => text.includes(k));
 }
 
-/**
- * §59-7 5단 구조 메시지 빌드 — v2: ①~④ 번호 제거, 흐름형 문장으로 전환.
- * "오늘의 나"(bot.js)와 동일한 톤으로 통일.
- * macro.text(assetMapping.js v2)가 이미 오행×유형별로 풀어쓴 완성 문장이라
- * 별도 "결로 들어옵니다" 연결구는 생략 — 대신 자연스러운 흐름 멘트(TYPE_FLOW)만 덧붙임.
- * areaLine/advice/healMsg는 기존 모듈 결과를 그대로 사용.
- * ⑤ 글리프·캡션 분리 발송은 sendDailyInvest()에서 변경 없이 그대로 처리.
- */
+// 유형별 흐름 마무리 멘트 (거시 문장 뒤 자연 연결)
 const TYPE_FLOW = {
   A: '무리하게 밀어붙이기보다 한 박자 늦추는 쪽이 오늘의 결을 지키는 방법입니다.',
   B: '무리해서 흔들어 깨우지 않아도 괜찮은 흐름입니다.',
   C: '애써 누르지 않아도 자연스럽게 흘러가는 하루입니다.'
 };
 
+/**
+ * v3 블록 구조 메시지 빌드.
+ * [오늘의 결] → [오늘 당신의 성향]★센터 → [눈길 가는 자산군] → [오늘의 마음가짐] → [5일 프리뷰]
+ */
 function buildInvestParts(user) {
   const { birthYear, birthMonth, birthDay } = user;
-  const r = todayFortune(birthYear); // { type: 'A'|'B'|'C', ... } — bornbone_today.js 재사용
-  const macro = getMacroLine(r.type);
+  const now = new Date();
+  const r = todayFortune(birthYear, now);
+  const macro = getMacroLine(r.type, now);
   const areaLine = getAssetAreaLine(macro.ohang);
   const advice = pickAdvice(r.type);
   const healMsg = pickHealMsg(r.type);
   const flow = TYPE_FLOW[r.type] || TYPE_FLOW.B;
 
-  // ① 일주 정체성 한 줄 — 약 30% 확률로만 노출(ilju.js 공유). 매일 노출 시 단정·세뇌 위험 방지.
+  // 일주 정체성 한 줄 — 약 30% 확률(ilju.js). "오늘의 결" 블록 상단에 병합(빈 블록 방지).
   const iljuIntro = (birthMonth && birthDay)
     ? getIljuIntroLine(birthYear, birthMonth, birthDay)
     : null;
-  const iljuLine = iljuIntro ? `${iljuIntro}\n\n` : '';
+  const iljuLine = iljuIntro ? `${iljuIntro}\n` : '';
 
-  // 십성 재물 영역 — 생년월일 전체가 있어야 산출 가능. 연도만 있는 기존 가입자는 생략.
-  const domain = getTodayDomain(birthYear, birthMonth, birthDay, new Date(), 'invest');
-  const domainLine = domain
-    ? ` 당신에게는 오늘 특히 ${domain.label}로 그 흐름이 닿습니다. ` +
-      `${SIP_INVEST_DETAIL[domain.sipseong] || ''}`
-    : '';
+  // ★센터 — 십성 영역(왜) + 오늘의 투자 심리 거울(통찰). 생년월일 전체 필요.
+  const domain = getTodayDomain(birthYear, birthMonth, birthDay, now, 'invest');
+  let insightBlock = '';
+  if (domain) {
+    const detail = SIP_INVEST_DETAIL[domain.sipseong] || '';
+    const insight = SIP_INVEST_INSIGHT[domain.sipseong] || '';
+    insightBlock =
+      `<b>오늘 당신의 성향</b>\n${detail}` +
+      (insight ? `\n${insight}` : '') + `\n\n`;
+  }
+
+  const preview = buildWeekPreview(birthYear, 5, now);
 
   const text =
-    `🌅 오늘의 투자운\n\n` +
-    `${iljuLine}` +
-    `${macro.text} ${flow}${domainLine}\n\n` +
-    `${areaLine} ${advice}\n`;
+    `🌅 <b>오늘의 투자운</b> · ${kstMonthDay(now)}\n` +
+    `━━━━━━━━━━\n\n` +
+    `<b>오늘의 결</b>\n${iljuLine}${macro.text} ${flow}\n\n` +
+    `${insightBlock}` +
+    `<b>눈길 가는 자산군</b>\n${areaLine}\n\n` +
+    `<b>오늘의 마음가짐</b>\n${advice}\n\n` +
+    `${preview}`;
 
-  return { text, healMsg };
+  return { text, healMsg, ohang: macro.ohang };
+}
+
+/** /이달투자 — 이달 남은 날 흐름(랜딩 월 캘린더의 텍스트판). 남은 일수만큼. */
+function buildMonthPreview(birthYear) {
+  const now = new Date();
+  const { m } = { m: +new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', month: '2-digit' }).format(now) };
+  const y = +new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric' }).format(now);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const today = +new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', day: '2-digit' }).format(now);
+  const remain = daysInMonth - today + 1;
+  return `🗓 <b>${m}월 남은 날의 흐름</b>\n` + buildWeekPreview(birthYear, remain, now).split('\n').slice(1).join('\n');
 }
 
 async function sendDailyInvest(chatId, user) {
-  const { text, healMsg } = buildInvestParts(user);
-  await bot.sendMessage(chatId, text);
-  // ⑤ 힐링 단계만 글리프 이미지와 함께 분리 발송 — "마무리 도장" 효과
-  await bot.sendPhoto(chatId, GLYPH_PATH, {
+  const { text, healMsg, ohang } = buildInvestParts(user);
+  await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  // 힐링 + 면책은 그날 오행 카드 캡션으로 분리 발송 — "마무리 도장" + 매일 결이 바뀌는 감성
+  const card = ELEMENT_CARD[ohang] || ELEMENT_CARD['土'];
+  await bot.sendPhoto(chatId, card, {
     caption: `${healMsg}\n\n${DISCLAIMER}`
   });
 }
@@ -122,12 +151,13 @@ bot.onText(/\/start/, (msg) => {
     return;
   }
   pending.set(chatId, 'awaiting_birthdate');
-  bot.sendMessage(chatId,
+  const welcome =
     '안녕하세요, 지아세 知我世 — 오늘의 투자운입니다 🙂\n' +
-    '매일 아침, 오늘의 흐름과 자산군 분위기를 짧게 전해드립니다.\n\n' +
+    '매일 아침, 오늘의 흐름과 오늘 당신의 투자 심리를 짧게 전해드립니다.\n\n' +
     `${DISCLAIMER}\n\n` +
-    '생년월일을 숫자 8자리로 보내주세요. (예: 19901225)'
-  );
+    '생년월일을 숫자 8자리로 보내주세요. (예: 19901225)';
+  bot.sendPhoto(chatId, BRAND_MARK, { caption: welcome })
+    .catch(() => bot.sendMessage(chatId, welcome)); // 이미지 실패 시 텍스트 폴백
 });
 
 // 8자리 생년월일 문자열 파싱 + 범위 검증
@@ -152,6 +182,17 @@ bot.onText(/\/오늘투자/, async (msg) => {
     return;
   }
   await sendDailyInvest(chatId, user);
+});
+
+// ── /이달투자 : 이달 남은 흐름 ──
+bot.onText(/\/이달투자/, (msg) => {
+  const chatId = msg.chat.id;
+  const user = getUser(chatId);
+  if (!user || !user.birthYear) {
+    bot.sendMessage(chatId, '먼저 /start 로 가입해주세요.');
+    return;
+  }
+  bot.sendMessage(chatId, buildMonthPreview(user.birthYear), { parse_mode: 'HTML' });
 });
 
 // ── /stop : 수신 거부 ──
@@ -216,4 +257,4 @@ cron.schedule('30 7 * * *', () => {
   console.log(`[${new Date().toISOString()}] 투자운 일일 발송 완료 — 대상 ${Object.keys(users).length}명`);
 }, { timezone: 'Asia/Seoul' });
 
-console.log('지아세 오늘의 투자운 봇 — 실행 중');
+console.log('지아세 오늘의 투자운 봇 (v3) — 실행 중');
